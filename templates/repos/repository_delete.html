@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete {{ repository.name }} - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h4 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Delete Repository</h4>
+            </div>
+            <div class="card-body">
+                <p class="lead">Are you sure you want to delete the repository "{{ repository.name }}"?</p>
+                <p class="text-danger">
+                    <strong>Warning:</strong> This action cannot be undone. The repository will be deleted from both GitHub and this application.
+                </p>
+                
+                <form method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Delete Repository
+                    </button>
+                    <a href="{% url 'repos:repository_detail' repository.pk %}" class="btn btn-secondary">
+                        <i class="fas fa-times"></i> Cancel
+                    </a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

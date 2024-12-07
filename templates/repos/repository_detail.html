@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ repository.name }} - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>{{ repository.name }}</h1>
+    <div>
+        <a href="{{ repository.url }}" class="btn btn-outline-secondary" target="_blank">
+            <i class="fab fa-github"></i> View on GitHub
+        </a>
+        <a href="{% url 'repos:repository_delete' repository.pk %}" class="btn btn-danger">
+            <i class="fas fa-trash"></i> Delete
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-info-circle"></i> Repository Information
+            </div>
+            <div class="card-body">
+                <p><strong>Description:</strong> {{ repository.description|default:"No description available" }}</p>
+                <p><strong>Visibility:</strong> {% if repository.private %}Private{% else %}Public{% endif %}</p>
+                <p><strong>Created:</strong> {{ repository.created_at|date:"M d, Y H:i" }}</p>
+                <p><strong>Last Updated:</strong> {{ repository.updated_at|date:"M d, Y H:i" }}</p>
+                <p><strong>Last Synced:</strong> {{ repository.last_synced|date:"M d, Y H:i"|default:"Never" }}</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-code-branch"></i> Branches
+            </div>
+            <div class="card-body">
+                {% if branches %}
+                    <div class="list-group">
+                        {% for branch in branches %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-1">
+                                        {{ branch.name }}
+                                        {% if branch.is_default %}
+                                            <span class="badge bg-success">Default</span>
+                                        {% endif %}
+                                    </h5>
+                                    <small>Updated: {{ branch.updated_at|date:"M d, Y H:i" }}</small>
+                                </div>
+                                <p class="mb-1">
+                                    <small class="text-muted">Last commit: {{ branch.last_commit_message|truncatechars:100 }}</small>
+                                </p>
+                                <small>SHA: {{ branch.last_commit_sha }}</small>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted">No branches found.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-sync"></i> Actions
+            </div>
+            <div class="card-body">
+                <form method="post" action="{% url 'repos:repository_import' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="repository_id" value="{{ repository.pk }}">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-sync"></i> Sync Repository
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,6 +1,10 @@
 # GitHub Repository Management Dependencies
+django>=5.0
 PyGithub
 requests
 python-dotenv
 rich
 click
+django-crispy-forms
+crispy-bootstrap5
+django-environ
