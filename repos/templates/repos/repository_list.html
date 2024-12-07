@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container">
+    <!-- Header Section -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Repositories</h1>
+        <div>
+            <a href="{% url 'repos:repository_import' %}" class="btn btn-success">
+                <i class="fas fa-download"></i> Import
+            </a>
+            <a href="{% url 'repos:repository_create' %}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Create New
+            </a>
+        </div>
+    </div>
+
+    <!-- Search and Filter Section -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    {{ search_form.query.label_tag }}
+                    {{ search_form.query }}
+                </div>
+                <div class="col-md-3">
+                    {{ search_form.private.label_tag }}
+                    {{ search_form.private }}
+                </div>
+                <div class="col-md-3">
+                    {{ search_form.organization.label_tag }}
+                    {{ search_form.organization }}
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    {% if repositories %}
+        <div class="row">
+            {% for repo in repositories %}
+                <div class="col-md-6 mb-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <h5 class="card-title mb-1">
+                                    <i class="fas fa-code me-2"></i>
+                                    <a href="{% url 'repos:repository_detail' repo.pk %}" class="text-decoration-none">
+                                        {{ repo.name }}
+                                    </a>
+                                </h5>
+                                {% if repo.private %}
+                                    <span class="badge bg-danger">Private</span>
+                                {% else %}
+                                    <span class="badge bg-success">Public</span>
+                                {% endif %}
+                            </div>
+                            
+                            {% if repo.description %}
+                            <p class="card-text">{{ repo.description }}</p>
+                            {% endif %}
+                            
+                            <div class="text-muted small mb-3">
+                                <i class="far fa-clock me-1"></i> Updated {{ repo.updated_at|timesince }} ago
+                                {% if repo.organization %}
+                                    | <i class="fas fa-building me-1"></i> {{ repo.organization }}
+                                {% endif %}
+                            </div>
+                            
+                            <div class="btn-group">
+                                <a href="{{ repo.url }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fab fa-github"></i> View on GitHub
+                                </a>
+                                <a href="{% url 'repos:repository_detail' repo.pk %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="fas fa-info-circle"></i> Details
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            No repositories found. Try a different search or import repositories.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

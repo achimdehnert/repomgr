@@ -4,107 +4,177 @@ from django.utils import timezone
 from .models import Repository, Branch
 import logging
 import os
+import shutil
+import requests
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class GitHubService:
     def __init__(self):
-        token = os.environ.get('GITHUB_ACCESS_TOKEN')
-        if not token:
+        self.token = os.environ.get('GITHUB_ACCESS_TOKEN')
+        if not self.token:
             raise ValueError("GitHub access token is not set in environment")
         
         try:
-            # Initialize with higher per_page setting and retry settings
-            self.client = Github(
-                token,
-                per_page=100,  # Maximum items per page
-                retry=3,       # Number of retries for failed requests
-                timeout=15,    # Timeout in seconds
-            )
-            # Test the connection and log user info
+            # Initialize PyGithub client for some operations
+            self.client = Github(self.token)
             self.user = self.client.get_user()
             logger.info(f"Connected to GitHub as user: {self.user.login}")
-            logger.info(f"Rate limit: {self.client.get_rate_limit().core.remaining}/{self.client.get_rate_limit().core.limit}")
+            
+            # Create local repos directory if it doesn't exist
+            os.makedirs(settings.LOCAL_REPOS_DIR, exist_ok=True)
+            logger.info(f"Local repositories directory: {settings.LOCAL_REPOS_DIR}")
+            
+            # Set up session for direct API calls
+            self.session = requests.Session()
+            self.session.headers.update({
+                'Authorization': f'token {self.token}',
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Python'
+            })
+            
+            # Test API access
+            response = self.session.get('https://api.github.com/user')
+            response.raise_for_status()
+            logger.info(f"API connection successful. Rate limit: {self.client.get_rate_limit().core.remaining}/{self.client.get_rate_limit().core.limit}")
         except Exception as e:
             logger.error(f"Failed to initialize GitHub client: {str(e)}")
             raise ValueError(f"Failed to connect to GitHub: {str(e)}")
 
+    def _get_all_pages(self, url, params=None):
+        """Helper method to handle GitHub API pagination using Link headers"""
+        if params is None:
+            params = {}
+        params['per_page'] = 100  # Set this once at the start
+        
+        all_items = []
+        current_url = url
+        
+        while current_url:
+            # For the first request, use the original URL with params
+            # For subsequent requests, use the full next_url from Link header (which already includes params)
+            if current_url == url:
+                response = self.session.get(current_url, params=params)
+            else:
+                response = self.session.get(current_url)
+            
+            # Check rate limit before parsing response
+            rate_limit = response.headers.get('X-RateLimit-Remaining')
+            if rate_limit and int(rate_limit) == 0:
+                reset_time = int(response.headers.get('X-RateLimit-Reset', 0))
+                current_time = int(timezone.now().timestamp())
+                wait_time = reset_time - current_time
+                raise Exception(f"GitHub API rate limit exceeded. Reset in {wait_time} seconds")
+            
+            response.raise_for_status()
+            logger.info(f"Rate limit remaining: {rate_limit}")
+            
+            # Get items from current page
+            items = response.json()
+            if not isinstance(items, list):
+                break
+                
+            if not items:  # No items in response
+                break
+                
+            all_items.extend(items)
+            logger.debug(f"Fetched {len(items)} items")
+            
+            # Check for next page in Link header
+            current_url = None
+            if 'Link' in response.headers:
+                links = response.headers['Link'].split(', ')
+                for link in links:
+                    if 'rel="next"' in link:
+                        current_url = link[link.index('<') + 1:link.index('>')]
+                        logger.debug(f"Found next page: {current_url}")
+                        break
+            
+            if not current_url:
+                logger.debug("No more pages to fetch")
+                break
+        
+        return all_items
+
     def sync_repositories(self, username=None, affiliation='owner,organization_member,collaborator'):
         """Sync repositories for a specific user or all accessible repositories"""
         try:
-            all_repos = set()  # Use a set to avoid duplicates
-
-            # 1. Get user's own repositories
-            logger.info("Fetching owned repositories...")
-            owned_repos = self.user.get_repos(type='owner')
-            for repo in owned_repos:
-                all_repos.add(repo)
-                logger.debug(f"Found owned repository: {repo.full_name}")
-
-            # 2. Get repositories from organizations
-            logger.info("Fetching organization repositories...")
-            for org in self.user.get_orgs():
-                logger.info(f"Checking organization: {org.login}")
-                try:
-                    org_repos = org.get_repos()
-                    for repo in org_repos:
-                        all_repos.add(repo)
-                        logger.debug(f"Found org repository: {repo.full_name}")
-                except Exception as e:
-                    logger.error(f"Error fetching repos for org {org.login}: {str(e)}")
-
-            # 3. Get repositories where user is a collaborator
-            logger.info("Fetching collaborative repositories...")
-            collab_repos = self.user.get_repos(type='collaborator')
-            for repo in collab_repos:
-                all_repos.add(repo)
-                logger.debug(f"Found collaborative repository: {repo.full_name}")
-
-            # 4. Get public repositories if a specific username is provided
-            if username and username != self.user.login:
-                logger.info(f"Fetching repositories for user {username}...")
-                target_user = self.client.get_user(username)
-                user_repos = target_user.get_repos()
-                for repo in user_repos:
-                    all_repos.add(repo)
-                    logger.debug(f"Found user repository: {repo.full_name}")
-
-            logger.info(f"Total unique repositories found: {len(all_repos)}")
+            # Get all repositories using direct API call with proper pagination
+            logger.info("Fetching all accessible repositories...")
+            repos_data = self._get_all_pages(
+                'https://api.github.com/user/repos',
+                params={'affiliation': 'owner,organization_member,collaborator', 'sort': 'full_name'}
+            )
             
-            # Convert set to list for further processing
-            all_repos = list(all_repos)
+            # Also get starred repositories
+            logger.info("Fetching starred repositories...")
+            starred_repos = self._get_all_pages('https://api.github.com/user/starred')
+            
+            # Combine and deduplicate repositories
+            all_repos = repos_data + starred_repos
+            seen_ids = set()
+            unique_repos = []
+            for repo in all_repos:
+                if repo['id'] not in seen_ids:
+                    seen_ids.add(repo['id'])
+                    unique_repos.append(repo)
+            
+            logger.info(f"Total unique repositories found: {len(unique_repos)}")
+            logger.info("Repository IDs found:")
+            for repo in unique_repos:
+                logger.info(f"ID: {repo['id']} - {repo['full_name']}")
             
             synced_repos = []
-            for repo in all_repos:
+            for repo_data in unique_repos:
                 try:
-                    logger.info(f"Processing repository: {repo.full_name}")
+                    logger.info(f"Processing repository: {repo_data['full_name']}")
+                    
+                    # Parse dates
+                    created_at = datetime.strptime(repo_data['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+                    updated_at = datetime.strptime(repo_data['updated_at'], '%Y-%m-%dT%H:%M:%SZ')
+                    pushed_at = datetime.strptime(repo_data['pushed_at'], '%Y-%m-%dT%H:%M:%SZ') if repo_data['pushed_at'] else None
+                    
+                    # Determine the actual local path
+                    local_path = os.path.join(os.path.dirname(settings.BASE_DIR), repo_data['name'])
+                    logger.info(f"Actual local path for {repo_data['name']}: {local_path}")
+                    
                     # Create or update repository
                     repo_obj, created = Repository.objects.update_or_create(
-                        github_id=repo.id,
+                        github_id=repo_data['id'],
                         defaults={
-                            'name': repo.name,
-                            'full_name': repo.full_name,
-                            'description': repo.description or '',
-                            'url': repo.html_url,
-                            'private': repo.private,
-                            'fork': repo.fork,
-                            'created_at': repo.created_at,
-                            'updated_at': repo.updated_at,
-                            'pushed_at': repo.pushed_at,
-                            'size': repo.size,
-                            'language': repo.language or '',
-                            'default_branch': repo.default_branch,
-                            'organization': repo.organization.login if repo.organization else None,
+                            'name': repo_data['name'],
+                            'full_name': repo_data['full_name'],
+                            'description': repo_data['description'] or '',
+                            'url': repo_data['html_url'],
+                            'private': repo_data['private'],
+                            'fork': repo_data['fork'],
+                            'created_at': created_at,
+                            'updated_at': updated_at,
+                            'pushed_at': pushed_at,
+                            'size': repo_data['size'],
+                            'language': repo_data['language'] or '',
+                            'default_branch': repo_data['default_branch'],
+                            'organization': repo_data['owner']['login'] if repo_data['owner']['type'] == 'Organization' else None,
                             'last_synced': timezone.now(),
+                            'local_path': local_path
                         }
                     )
+                    
+                    # Verify local directory exists
+                    if os.path.exists(local_path):
+                        logger.info(f"Local directory exists: {local_path}")
+                    else:
+                        logger.warning(f"Local directory does not exist: {local_path}")
 
-                    # Update branches
-                    self._sync_branches(repo_obj, repo)
+                    # Get repository object for branch syncing
+                    github_repo = self.client.get_repo(repo_data['full_name'])
+                    self._sync_branches(repo_obj, github_repo)
+                    
                     synced_repos.append(repo_obj)
-                    logger.info(f"Successfully synced repository: {repo.full_name}")
+                    logger.info(f"Successfully synced repository: {repo_data['full_name']}")
                 except Exception as e:
-                    logger.error(f"Error syncing repository {repo.full_name}: {str(e)}")
+                    logger.error(f"Error syncing repository {repo_data['full_name']}: {str(e)}")
                     continue
 
             # Log summary
@@ -160,6 +230,9 @@ class GitHubService:
         )
         
         # Sync the newly created repository
+        local_path = os.path.join(os.path.dirname(settings.BASE_DIR), github_repo.name)
+        logger.info(f"Setting local path for new repository: {local_path}")
+        
         repo_obj, _ = Repository.objects.update_or_create(
             github_id=github_repo.id,
             defaults={
@@ -168,16 +241,79 @@ class GitHubService:
                 'url': github_repo.html_url,
                 'private': github_repo.private,
                 'last_synced': timezone.now(),
+                'local_path': local_path
             }
         )
+        
+        # Ensure local directory exists
+        if os.path.exists(local_path):
+            logger.info(f"Local directory exists: {local_path}")
+        else:
+            logger.warning(f"Local directory does not exist: {local_path}")
+
         self._sync_branches(repo_obj, github_repo)
         return repo_obj
 
     def delete_repository(self, repository):
-        """Delete a repository from GitHub"""
-        github_repo = self.client.get_repo(f"{self.client.get_user().login}/{repository.name}")
-        github_repo.delete()
-        repository.delete()
+        """Delete a repository from GitHub and remove its local folder if it exists"""
+        try:
+            # First, delete from GitHub
+            github_repo = self.client.get_repo(f"{self.client.get_user().login}/{repository.name}")
+            github_repo.delete()
+            logger.info(f"Successfully deleted GitHub repository: {repository.name}")
+        except Exception as github_delete_error:
+            logger.error(f"Error deleting GitHub repository {repository.name}: {str(github_delete_error)}")
+        
+        # Delete local folder if it exists
+        local_paths_to_check = [
+            repository.local_path,  # Path from database
+            os.path.join(settings.LOCAL_REPOS_DIR, repository.name),  # Default local repos directory
+            os.path.join(settings.BASE_DIR, 'local_repos', repository.name)  # Alternative local repos path
+        ]
+        
+        for local_path in local_paths_to_check:
+            if not local_path:
+                continue
+            
+            logger.info(f"Checking local path for deletion: {local_path}")
+            
+            try:
+                # Ensure we're not trying to delete something outside the intended directory
+                base_github_dir = os.path.dirname(settings.BASE_DIR)
+                if not local_path.startswith(base_github_dir):
+                    logger.warning(f"Local path {local_path} is not within {base_github_dir}. Skipping deletion.")
+                    continue
+                
+                if not os.path.exists(local_path):
+                    logger.warning(f"Local folder does not exist: {local_path}")
+                    continue
+                
+                # Check if it's a directory
+                if not os.path.isdir(local_path):
+                    logger.warning(f"Local path is not a directory: {local_path}")
+                    continue
+                
+                # Detailed directory contents logging
+                logger.info(f"Directory contents of {local_path}:")
+                for item in os.listdir(local_path):
+                    logger.info(f"  - {item}")
+                
+                # Use shutil to remove the entire directory
+                import shutil
+                shutil.rmtree(local_path)
+                logger.info(f"Successfully deleted local folder: {local_path}")
+                break  # Stop after successfully deleting one path
+            except PermissionError:
+                logger.error(f"Permission denied when trying to delete {local_path}")
+            except Exception as delete_error:
+                logger.error(f"Error deleting local folder {local_path}: {str(delete_error)}")
+        
+        # Finally, remove from database
+        try:
+            repository.delete()
+            logger.info(f"Successfully removed repository {repository.name} from database")
+        except Exception as db_delete_error:
+            logger.error(f"Error removing repository from database: {str(db_delete_error)}")
 
     def get_repository_details(self, repository):
         """Get detailed information about a repository"""

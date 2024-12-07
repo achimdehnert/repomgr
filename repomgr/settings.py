@@ -157,6 +157,9 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 LOGIN_URL = 'login'
 
+# Local repositories directory
+LOCAL_REPOS_DIR = BASE_DIR / 'local_repos'
+
 # Logging Configuration
 LOGGING = {
     'version': 1,

@@ -30,12 +30,36 @@ class RepositoryImportForm(forms.Form):
 class RepositorySearchForm(forms.Form):
     query = forms.CharField(
         required=False,
+        max_length=100,
         widget=forms.TextInput(attrs={
             'class': 'form-control',
             'placeholder': 'Search repositories...',
             'aria-label': 'Search'
         })
     )
+    private = forms.ChoiceField(
+        required=False,
+        choices=[
+            ('', 'All Repositories'),
+            ('true', 'Private Only'),
+            ('false', 'Public Only')
+        ],
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    organization = forms.CharField(
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Filter by organization...'
+        })
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        return cleaned_data
 
 class RepositoryCreateForm(forms.Form):
     name = forms.CharField(max_length=100)

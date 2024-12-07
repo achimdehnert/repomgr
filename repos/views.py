@@ -12,17 +12,55 @@ from .forms import (
 from .services import GitHubService
 from github import GithubException
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 @login_required
 def repository_list(request):
+    # Initialize session search status if not exists
+    if 'search_status' not in request.session:
+        request.session['search_status'] = {
+            'query': '',
+            'private': '',
+            'organization': '',
+            'total_repositories': 0,
+            'filtered_repositories': 0,
+            'last_search_time': None
+        }
+
     form = RepositorySearchForm(request.GET)
     repositories = Repository.objects.all()
 
-    if form.is_valid() and form.cleaned_data['query']:
-        query = form.cleaned_data['query']
-        repositories = Repository.search(query)
+    # Update search status
+    search_status = request.session['search_status']
+    search_status['last_search_time'] = timezone.now().isoformat()
+    search_status['total_repositories'] = repositories.count()
+
+    if form.is_valid():
+        # Text-based search
+        query = form.cleaned_data.get('query', '')
+        search_status['query'] = query
+        if query:
+            repositories = Repository.search(query=query)
+
+        # Private status filter
+        private_filter = form.cleaned_data.get('private', '')
+        search_status['private'] = private_filter
+        if private_filter == 'true':
+            repositories = repositories.filter(private=True)
+        elif private_filter == 'false':
+            repositories = repositories.filter(private=False)
+
+        # Organization filter
+        organization = form.cleaned_data.get('organization', '')
+        search_status['organization'] = organization
+        if organization:
+            repositories = repositories.filter(organization__icontains=organization)
+
+    # Update filtered repositories count
+    search_status['filtered_repositories'] = repositories.count()
+    request.session.modified = True
 
     # Apply sorting
     sort = request.GET.get('sort', '-updated_at')
@@ -32,7 +70,8 @@ def repository_list(request):
     return render(request, 'repos/repository_list.html', {
         'repositories': repositories,
         'search_form': form,
-        'current_sort': sort
+        'current_sort': sort,
+        'search_status': search_status
     })
 
 @login_required
