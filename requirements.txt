@@ -1,0 +1,6 @@
+# GitHub Repository Management Dependencies
+PyGithub
+requests
+python-dotenv
+rich
+click

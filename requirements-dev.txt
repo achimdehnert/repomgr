@@ -1,0 +1,12 @@
+# Development and Testing Dependencies
+pytest
+pytest-cov
+mypy
+black
+flake8
+coverage
+
+# Additional development tools specific to this project
+python-dotenv
+types-requests
+types-python-dateutil
