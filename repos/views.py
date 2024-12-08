@@ -2,17 +2,20 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
-from .models import Repository, Branch
+from .models import Repository, Branch, WindsurfSession
 from .forms import (
     RepositoryForm,
     RepositoryImportForm,
     RepositoryCreateForm,
-    RepositorySearchForm
+    RepositorySearchForm,
+    WindsurfSessionForm
 )
 from .services import GitHubService
 from github import GithubException
 import logging
 from django.utils import timezone
+import git
+from django.db.models import Q, Prefetch
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,15 @@ def repository_list(request):
         }
 
     form = RepositorySearchForm(request.GET)
-    repositories = Repository.objects.all()
+    
+    # Start with an optimized queryset
+    repositories = Repository.objects.prefetch_related(
+        Prefetch(
+            'sessions',
+            queryset=WindsurfSession.objects.filter(active=True).select_related('branch'),
+            to_attr='_prefetched_active_sessions'
+        )
+    ).all()
 
     # Update search status
     search_status = request.session['search_status']
@@ -42,7 +53,11 @@ def repository_list(request):
         query = form.cleaned_data.get('query', '')
         search_status['query'] = query
         if query:
-            repositories = Repository.search(query=query)
+            repositories = repositories.filter(
+                Q(name__icontains=query) |
+                Q(description__icontains=query) |
+                Q(organization__icontains=query)
+            )
 
         # Private status filter
         private_filter = form.cleaned_data.get('private', '')
@@ -95,8 +110,8 @@ def repository_import(request):
                 service = GitHubService()
                 logger.info("GitHubService initialized")
                 
-                # Always include all types of repositories
-                affiliation = 'owner,organization_member,collaborator'
+                # Set affiliation to 'owner' only
+                affiliation = 'owner'
                 logger.info(f"Using affiliation: {affiliation}")
                 
                 # Get repositories based on form data
@@ -122,7 +137,7 @@ def repository_import(request):
                 
                 messages.success(
                     request,
-                    f'Successfully imported {len(repos)} repositories ' +
+                    f'Import of {len(repos)} repositories completed successfully! ' +
                     f'({sum(1 for r in repos if r.private)} private, ' +
                     f'{sum(1 for r in repos if r.organization)} from organizations)'
                 )
@@ -173,3 +188,64 @@ def repository_delete(request, pk):
             messages.error(request, f'Error deleting repository: {str(e)}')
     
     return render(request, 'repos/repository_delete.html', {'repository': repository})
+
+@login_required
+def start_session(request, pk):
+    repository = get_object_or_404(Repository, pk=pk)
+    
+    # End any active sessions for this repository
+    WindsurfSession.objects.filter(repository=repository, active=True).update(
+        active=False,
+        end_time=timezone.now()
+    )
+    
+    # Create new session
+    session = WindsurfSession.objects.create(
+        repository=repository,
+        branch=repository.branches.filter(is_default=True).first()
+    )
+    
+    # Get git status
+    try:
+        repo = git.Repo(repository.local_path)
+        session.git_status = {
+            'branch': repo.active_branch.name,
+            'modified': [item.a_path for item in repo.index.diff(None)],
+            'untracked': repo.untracked_files
+        }
+        session.save()
+    except Exception as e:
+        logger.error(f"Error getting git status: {str(e)}")
+    
+    messages.success(request, f'Started new Windsurf session for {repository.name}')
+    return redirect('repos:repository_detail', pk=pk)
+
+@login_required
+def end_session(request, pk, session_id):
+    repository = get_object_or_404(Repository, pk=pk)
+    session = get_object_or_404(WindsurfSession, pk=session_id, repository=repository)
+    
+    if request.method == 'POST':
+        form = WindsurfSessionForm(request.POST, instance=session)
+        if form.is_valid():
+            session = form.save(commit=False)
+            session.end_session()
+            messages.success(request, f'Ended Windsurf session for {repository.name}')
+            return redirect('repos:repository_detail', pk=pk)
+    else:
+        form = WindsurfSessionForm(instance=session)
+    
+    return render(request, 'repos/session_end.html', {
+        'form': form,
+        'repository': repository,
+        'session': session
+    })
+
+@login_required
+def session_list(request, pk):
+    repository = get_object_or_404(Repository, pk=pk)
+    sessions = repository.sessions.all()
+    return render(request, 'repos/session_list.html', {
+        'repository': repository,
+        'sessions': sessions
+    })

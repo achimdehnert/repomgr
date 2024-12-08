@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Windsurf Sessions for {{ repository.name }}</h1>
+        <div>
+            <a href="{% url 'repos:start_session' repository.pk %}" class="btn btn-success">
+                <i class="fas fa-play"></i> Start New Session
+            </a>
+            <a href="{% url 'repos:repository_detail' repository.pk %}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to Repository
+            </a>
+        </div>
+    </div>
+
+    {% if sessions %}
+        <div class="list-group">
+            {% for session in sessions %}
+                <div class="list-group-item {% if session.active %}list-group-item-success{% endif %}">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h5 class="mb-1">
+                                Session #{{ session.id }}
+                                {% if session.active %}
+                                    <span class="badge bg-success">Active</span>
+                                {% endif %}
+                            </h5>
+                            <p class="mb-1">Started: {{ session.start_time }}</p>
+                            {% if session.end_time %}
+                                <p class="mb-1">Ended: {{ session.end_time }}</p>
+                                <p class="mb-1">Duration: {{ session.end_time|timeuntil:session.start_time }}</p>
+                            {% endif %}
+                            {% if session.branch %}
+                                <p class="mb-1">Branch: {{ session.branch.name }}</p>
+                            {% endif %}
+                        </div>
+                        <div>
+                            {% if session.active %}
+                                <a href="{% url 'repos:end_session' repository.pk session.id %}" class="btn btn-warning">
+                                    <i class="fas fa-stop"></i> End Session
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    {% if session.notes %}
+                        <div class="mt-3">
+                            <h6>Notes:</h6>
+                            <p class="mb-1">{{ session.notes|linebreaks }}</p>
+                        </div>
+                    {% endif %}
+                    
+                    {% if session.open_files %}
+                        <div class="mt-3">
+                            <h6>Open Files:</h6>
+                            <ul class="list-unstyled">
+                                {% for file in session.open_files %}
+                                    <li><code>{{ file }}</code></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endif %}
+                    
+                    {% if session.git_status %}
+                        <div class="mt-3">
+                            <h6>Git Status:</h6>
+                            <p class="mb-1">Branch: {{ session.git_status.branch }}</p>
+                            {% if session.git_status.modified %}
+                                <p class="mb-1">Modified files: {{ session.git_status.modified|length }}</p>
+                            {% endif %}
+                            {% if session.git_status.untracked %}
+                                <p class="mb-1">Untracked files: {{ session.git_status.untracked|length }}</p>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            No sessions found for this repository. Start a new session to begin tracking your work.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

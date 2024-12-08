@@ -1,5 +1,5 @@
 from django import forms
-from .models import Repository
+from .models import Repository, WindsurfSession
 
 class RepositoryForm(forms.ModelForm):
     class Meta:
@@ -70,3 +70,10 @@ class RepositoryCreateForm(forms.Form):
         initial=True,
         help_text="Initialize repository with README"
     )
+
+class WindsurfSessionForm(forms.ModelForm):
+    notes = forms.CharField(widget=forms.Textarea(attrs={'rows': 4}), required=False)
+    
+    class Meta:
+        model = WindsurfSession
+        fields = ['notes']

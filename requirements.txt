@@ -8,3 +8,5 @@ click
 django-crispy-forms
 crispy-bootstrap5
 django-environ
+psycopg2-binary
+gitpython

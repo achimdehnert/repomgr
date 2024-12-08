@@ -97,14 +97,14 @@ class GitHubService:
         
         return all_items
 
-    def sync_repositories(self, username=None, affiliation='owner,organization_member,collaborator'):
+    def sync_repositories(self, username=None, affiliation='owner'):
         """Sync repositories for a specific user or all accessible repositories"""
         try:
             # Get all repositories using direct API call with proper pagination
             logger.info("Fetching all accessible repositories...")
             repos_data = self._get_all_pages(
                 'https://api.github.com/user/repos',
-                params={'affiliation': 'owner,organization_member,collaborator', 'sort': 'full_name'}
+                params={'affiliation': affiliation, 'sort': 'full_name'}
             )
             
             # Also get starred repositories

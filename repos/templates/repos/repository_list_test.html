@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>TEST TEMPLATE</h1>
+    
+    {% for repo in repositories %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>{{ repo.name }}</h5>
+            <div class="btn-group">
+                <button class="btn btn-danger">TEST BUTTON</button>
+                <a href="{% url 'repos:start_session' repo.pk %}" class="btn btn-secondary">
+                    <i class="fas fa-play"></i> No Sessions
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

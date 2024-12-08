@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>{{ repository.name }}</h1>
+        <div>
+            {% with active_session=repository.sessions.filter(active=True).first %}
+                {% if active_session %}
+                    <a href="{% url 'repos:end_session' repository.pk active_session.id %}" class="btn btn-warning">
+                        <i class="fas fa-stop"></i> End Current Session
+                    </a>
+                {% else %}
+                    <a href="{% url 'repos:start_session' repository.pk %}" class="btn btn-success">
+                        <i class="fas fa-play"></i> Start Session
+                    </a>
+                {% endif %}
+            {% endwith %}
+            <a href="{% url 'repos:session_list' repository.pk %}" class="btn btn-info">
+                <i class="fas fa-history"></i> View Sessions
+            </a>
+            <a href="{{ repository.url }}" target="_blank" class="btn btn-primary">
+                <i class="fab fa-github"></i> View on GitHub
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Repository Info -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Repository Information</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Description:</strong> {{ repository.description|default:"No description available" }}</p>
+                    <p><strong>Private:</strong> {% if repository.private %}Yes{% else %}No{% endif %}</p>
+                    <p><strong>Language:</strong> {{ repository.language|default:"Not specified" }}</p>
+                    <p><strong>Last Updated:</strong> {{ repository.updated_at }}</p>
+                    <p><strong>Local Path:</strong> {{ repository.local_path }}</p>
+                </div>
+            </div>
+
+            <!-- Branches -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Branches</h5>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        {% for branch in branches %}
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">
+                                        {{ branch.name }}
+                                        {% if branch.is_default %}
+                                            <span class="badge bg-primary">Default</span>
+                                        {% endif %}
+                                    </h6>
+                                    <small>Last commit: {{ branch.last_commit_message|truncatechars:50 }}</small>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active Session Info -->
+        <div class="col-md-4">
+            {% with active_session=repository.sessions.filter(active=True).first %}
+                {% if active_session %}
+                    <div class="card mb-4 border-success">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="card-title mb-0">Active Session</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>Started:</strong> {{ active_session.start_time }}</p>
+                            <p><strong>Duration:</strong> {{ active_session.start_time|timeuntil:now }}</p>
+                            {% if active_session.branch %}
+                                <p><strong>Branch:</strong> {{ active_session.branch.name }}</p>
+                            {% endif %}
+                            
+                            {% if active_session.git_status %}
+                                <h6 class="mt-3">Git Status:</h6>
+                                <p class="mb-1">Branch: {{ active_session.git_status.branch }}</p>
+                                {% if active_session.git_status.modified %}
+                                    <p class="mb-1">Modified files: {{ active_session.git_status.modified|length }}</p>
+                                {% endif %}
+                                {% if active_session.git_status.untracked %}
+                                    <p class="mb-1">Untracked files: {{ active_session.git_status.untracked|length }}</p>
+                                {% endif %}
+                            {% endif %}
+                            
+                            {% if active_session.open_files %}
+                                <h6 class="mt-3">Open Files:</h6>
+                                <ul class="list-unstyled">
+                                    {% for file in active_session.open_files %}
+                                        <li><code>{{ file }}</code></li>
+                                    {% endfor %}
+                                </ul>
+                            {% endif %}
+                            
+                            <div class="mt-3">
+                                <a href="{% url 'repos:end_session' repository.pk active_session.id %}" class="btn btn-warning btn-sm">
+                                    <i class="fas fa-stop"></i> End Session
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            <!-- Recent Sessions -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Recent Sessions</h5>
+                </div>
+                <div class="card-body">
+                    {% with recent_sessions=repository.sessions.all|slice:":5" %}
+                        {% if recent_sessions %}
+                            <div class="list-group">
+                                {% for session in recent_sessions %}
+                                    <div class="list-group-item {% if session.active %}list-group-item-success{% endif %}">
+                                        <h6 class="mb-1">
+                                            Session #{{ session.id }}
+                                            {% if session.active %}
+                                                <span class="badge bg-success">Active</span>
+                                            {% endif %}
+                                        </h6>
+                                        <p class="mb-1">Started: {{ session.start_time }}</p>
+                                        {% if session.end_time %}
+                                            <small>Duration: {{ session.end_time|timeuntil:session.start_time }}</small>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                            <div class="mt-3 text-center">
+                                <a href="{% url 'repos:session_list' repository.pk %}" class="btn btn-outline-primary btn-sm">
+                                    View All Sessions
+                                </a>
+                            </div>
+                        {% else %}
+                            <p class="text-muted">No sessions yet</p>
+                        {% endif %}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
